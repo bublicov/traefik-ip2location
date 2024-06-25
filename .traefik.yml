@@ -1,10 +1,10 @@
-displayName: Demo Plugin
+displayName: Plugin locale by ip2location
 type: middleware
 iconPath: .assets/icon.png
 
-import: github.com/traefik/plugindemo
+import: github.com/bublicov/traefik-ip2location
 
-summary: '[Demo] Add Request Header'
+summary: 'Add locale by ip2location'
 
 testData:
   Headers:

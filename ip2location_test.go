@@ -1,0 +1,1 @@
+package traefik_ip2location_test
