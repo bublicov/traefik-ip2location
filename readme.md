@@ -121,7 +121,6 @@ this:
               dbPath: "/plugins-local/src/github.com/bublicov/traefik-ip2location/IP2LOCATION-LITE-DB1.BIN"
               languages: ["en", "fr", "de"]
               defaultLanguage: "en"
-              defaultLanguageHandling: true #optional (default: false)              
               languageToCountriesOverride: #optional
                 fr: ["CA"]
     ```
