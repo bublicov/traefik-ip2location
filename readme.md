@@ -42,8 +42,8 @@ language is English will not be redirected to a language-specific URL (e.g., `ex
 clean URL structure for the default language, providing a consistent user experience for visitors who use the default
 language.
 
-Additionally, the plugin will not make any changes to the request if the user's request already contains a language that
-matches one of the supported languages. This ensures that the user's preference is respected and that the URL structure
+Additionally, the plugin will not make any changes to the request if the user's request already contains a language.
+This ensures that the user's preference is respected and that the URL structure
 remains consistent with the user's choice.
 
 #### **Language Strategies**
