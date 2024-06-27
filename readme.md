@@ -63,7 +63,7 @@ http:
 
 ## Installation
 
-To use the Traefik IP2Location Plugin, you need to install it as a LOCAL PLUGIN for Traefik. Here are the steps to do
+To use the Traefik IP2Location Plugin, you need to install it as a **LOCAL PLUGIN** for Traefik. Here are the steps to do
 this:
 
 1. **Clone the Plugin Repository**: Clone the repository of the Traefik IP2Location Plugin to your local path
