@@ -10,28 +10,31 @@ import (
 	"github.com/ip2location/ip2location-go"
 )
 
-// RedirectPerform is a special value indicating that need a redirect.
-const RedirectPerform = "redirect_perform"
+const StrategyHeader = "header"
+const StrategyPath = "path"
+const StrategyQuery = "query"
 
 // Config the plugin configuration.
 type Config struct {
-	DBPath                      string              `json:"dbPath"`
-	Locales                     []string            `json:"locales"`
-	DefaultLocale               string              `json:"defaultLocale"`
-	LanguageStrategy            string              `json:"languageStrategy"`
-	LanguageParam               string              `json:"languageParam"`
-	Redirect                    bool                `json:"redirect"`
-	LanguageToCountriesOverride map[string][]string `json:"languageToCountriesOverride"`
+	DBPath                      string              `yaml:"dbPath"`
+	Languages                   []string            `yaml:"languages"`
+	DefaultLanguage             string              `yaml:"defaultLanguage"`
+	DefaultLanguageHandling     bool                `yaml:"defaultLanguageHandling"`
+	LanguageStrategy            string              `yaml:"languageStrategy"`
+	LanguageParam               string              `yaml:"languageParam"`
+	RedirectAfterHandling       bool                `yaml:"redirectAfterHandling"`
+	LanguageToCountriesOverride map[string][]string `yaml:"languageToCountriesOverride"`
 }
 
 // CreateConfig creates the default plugin configuration.
 func CreateConfig() *Config {
 	return &Config{
-		Locales:                     []string{},
-		DefaultLocale:               "",
+		Languages:                   []string{},
+		DefaultLanguage:             "",
+		DefaultLanguageHandling:     false,
 		LanguageStrategy:            "header",
-		LanguageParam:               "",
-		Redirect:                    false,
+		LanguageParam:               "lang",
+		RedirectAfterHandling:       true,
 		LanguageToCountriesOverride: make(map[string][]string),
 	}
 }
@@ -46,17 +49,21 @@ type GeoIP struct {
 }
 
 // New creates a new plugin.
-func New(ctx context.Context, next http.Handler, config *Config) (http.Handler, error) {
+func New(ctx context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
 	if config.DBPath == "" {
 		return nil, fmt.Errorf("DBPath is required")
 	}
 
-	if config.DefaultLocale == "" {
-		return nil, fmt.Errorf("DefaultLocale is required")
+	if len(config.Languages) == 0 {
+		return nil, fmt.Errorf("languages are required")
 	}
 
-	if len(config.Locales) == 0 {
-		return nil, fmt.Errorf("locales are required")
+	if config.DefaultLanguage == "" {
+		return nil, fmt.Errorf("DefaultLanguage is required")
+	}
+
+	if config.LanguageStrategy == StrategyQuery && config.LanguageParam == "" {
+		return nil, fmt.Errorf("languageParam is required when LanguageStrategy is 'query'")
 	}
 
 	db, err := ip2location.OpenDB(config.DBPath)
@@ -81,20 +88,30 @@ func (g *GeoIP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	locale := locationData.Country_short
-	if locale == "-" || !contains(g.config.Locales, normalizeLocale(locale)) {
-		locale = g.config.DefaultLocale
+	language := g.config.DefaultLanguage
+
+	if locale := normalizeLocale(locationData.Country_short); locale != "-" {
+		if languageByLocale := g.getLanguageByLocale(locale); contains(g.config.Languages, languageByLocale) {
+			language = languageByLocale
+		}
 	}
 
-	language := g.getLanguageByLocale(locale)
-	if language != "-" {
+	if language != g.config.DefaultLanguage || g.config.DefaultLanguageHandling {
 		if strategy, err := g.getStrategy(); err != nil {
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		} else {
-			if result := strategy.SetLanguage(w, r, language, g.config.Redirect); result == RedirectPerform {
-				http.Redirect(w, r, r.URL.String(), http.StatusFound)
-				return // Stop further execution if a redirect was performed
+			// Maybe lang already exist
+			languageByRequest := strategy.GetLanguage(r)
+			// Set lang
+			if languageByRequest == "" || !g.isLanguage(languageByRequest) {
+				// Fire
+				strategy.SetLanguage(w, r, language)
+				// Stop further execution if a redirect perform
+				if strategy.HasRedirectAfterHandling() {
+					http.Redirect(w, r, r.URL.String(), http.StatusFound)
+					return
+				}
 			}
 		}
 	}
@@ -114,84 +131,82 @@ func (g *GeoIP) Close() error {
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 type Strategy interface {
-	SetLanguage(w http.ResponseWriter, r *http.Request, language string, redirect bool) interface{}
+	GetLanguage(r *http.Request) string
+	SetLanguage(w http.ResponseWriter, r *http.Request, language string)
+	HasRedirectAfterHandling() bool
 }
 
 type HeaderStrategy struct {
+	redirectAfterHandling bool
 }
+
 type PathStrategy struct {
+	redirectAfterHandling bool
 }
+
 type QueryStrategy struct {
-	LanguageParam string
+	redirectAfterHandling bool
+	languageParam         string
 }
 
-func (h *HeaderStrategy) SetLanguage(w http.ResponseWriter, r *http.Request, language string, redirect bool) interface{} {
-	if r.Header.Get("Accept-Language") == "" {
-		r.Header.Set("Accept-Language", language)
-	}
-	return nil
+func (h *HeaderStrategy) GetLanguage(r *http.Request) string {
+	return r.Header.Get("Accept-Language")
 }
 
-func (p *PathStrategy) SetLanguage(w http.ResponseWriter, r *http.Request, language string, redirect bool) interface{} {
-	if !strings.HasPrefix(r.URL.Path, "/"+language) {
-		// Add the language prefix to the URL path
-		r.URL.Path = "/" + language + strings.TrimPrefix(r.URL.Path, "/")
-		// If redirect is enabled, perform a redirect to the updated URL
-		if redirect {
-			return RedirectPerform
-		}
-	}
-	return nil
+func (h *HeaderStrategy) SetLanguage(w http.ResponseWriter, r *http.Request, language string) {
+	r.Header.Set("Accept-Language", language)
 }
 
-func (q *QueryStrategy) SetLanguage(w http.ResponseWriter, r *http.Request, language string, redirect bool) interface{} {
-	if query := r.URL.Query(); query.Get(q.LanguageParam) == "" {
-		// Set the language parameter in the query string
-		query.Set(q.LanguageParam, language)
-		r.URL.RawQuery = query.Encode()
-		// If redirect is enabled, perform a redirect to the updated URL
-		if redirect {
-			return RedirectPerform
-		}
+func (h *HeaderStrategy) HasRedirectAfterHandling() bool {
+	return h.redirectAfterHandling
+}
+
+func (p *PathStrategy) GetLanguage(r *http.Request) string {
+	segments := strings.Split(r.URL.Path, "/")
+	if len(segments) > 1 && len(segments[1]) == 2 {
+		return segments[1]
 	}
-	return nil
+	return ""
+}
+
+func (p *PathStrategy) SetLanguage(w http.ResponseWriter, r *http.Request, language string) {
+	if r.URL.Path == "/" {
+		r.URL.Path = "/" + language
+	} else {
+		r.URL.Path = "/" + language + r.URL.Path
+	}
+}
+
+func (p *PathStrategy) HasRedirectAfterHandling() bool {
+	return p.redirectAfterHandling
+}
+
+func (q *QueryStrategy) GetLanguage(r *http.Request) string {
+	query := r.URL.Query()
+	return query.Get(q.languageParam)
+}
+
+func (q *QueryStrategy) SetLanguage(w http.ResponseWriter, r *http.Request, language string) {
+	query := r.URL.Query()
+	query.Set(q.languageParam, language)
+	r.URL.RawQuery = query.Encode()
+}
+
+func (q *QueryStrategy) HasRedirectAfterHandling() bool {
+	return q.redirectAfterHandling
 }
 
 /* Helpers
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
-
-func normalizeLocales(locales []string) []string {
-	normalizedLocales := make([]string, len(locales))
-	for i, locale := range locales {
-		normalizedLocales[i] = normalizeLocale(locale)
-	}
-	return normalizedLocales
-}
-
-func normalizeLocale(locale string) string {
-	return strings.ToUpper(locale)
-}
-
 func (g *GeoIP) getStrategy() (Strategy, error) {
 	switch g.config.LanguageStrategy {
-	case "header":
-		return &HeaderStrategy{}, nil
-	case "path":
-		return &PathStrategy{}, nil
-	case "query":
-		if g.config.LanguageParam == "" {
-			return nil, fmt.Errorf("LanguageParam is required when LanguageStrategy is 'query'")
-		}
-		return &QueryStrategy{LanguageParam: g.config.LanguageParam}, nil
+	case StrategyHeader:
+		return &HeaderStrategy{redirectAfterHandling: false}, nil
+	case StrategyPath:
+		return &PathStrategy{redirectAfterHandling: g.config.RedirectAfterHandling}, nil
+	case StrategyQuery:
+		return &QueryStrategy{languageParam: g.config.LanguageParam, redirectAfterHandling: g.config.RedirectAfterHandling}, nil
 	default:
 		return nil, fmt.Errorf("invalid LanguageStrategy: %s", g.config.LanguageStrategy)
 	}
@@ -216,6 +231,24 @@ func (g *GeoIP) getLocationData(remoteAddr string) (*ip2location.IP2Locationreco
 	return &results, nil
 }
 
+func (g *GeoIP) isLanguage(lang string) bool {
+	// Check the override map first
+	for language := range g.languageToCountriesOverride {
+		if language == lang {
+			return true
+		}
+	}
+
+	// If not found in override, check the default map
+	for language := range g.languageToCountriesDefault {
+		if language == lang {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (g *GeoIP) getLanguageByLocale(locale string) string {
 	// Check the override map first
 	for language, countries := range g.languageToCountriesOverride {
@@ -236,6 +269,27 @@ func (g *GeoIP) getLanguageByLocale(locale string) string {
 	}
 
 	return "-"
+}
+
+func normalizeLocales(locales []string) []string {
+	normalizedLocales := make([]string, len(locales))
+	for i, locale := range locales {
+		normalizedLocales[i] = normalizeLocale(locale)
+	}
+	return normalizedLocales
+}
+
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeLocale(locale string) string {
+	return strings.ToUpper(locale)
 }
 
 func createLanguageToCountriesMap() map[string][]string {
