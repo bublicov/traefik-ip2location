@@ -34,7 +34,7 @@ func CreateConfig() *Config {
 		DefaultLanguageHandling:     false,
 		LanguageStrategy:            "header",
 		LanguageParam:               "lang",
-		RedirectAfterHandling:       true,
+		RedirectAfterHandling:       false,
 		LanguageToCountriesOverride: make(map[string][]string),
 	}
 }
@@ -105,7 +105,7 @@ func (g *GeoIP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			languageByRequest := strategy.GetLanguage(r)
 			// Set lang
 			if languageByRequest == "" || !g.isLanguage(languageByRequest) {
-				// Fire
+				// Executing
 				strategy.SetLanguage(w, r, language)
 				// Stop further execution if a redirect perform
 				if strategy.HasRedirectAfterHandling() {
@@ -202,7 +202,7 @@ func (q *QueryStrategy) HasRedirectAfterHandling() bool {
 func (g *GeoIP) getStrategy() (Strategy, error) {
 	switch g.config.LanguageStrategy {
 	case StrategyHeader:
-		return &HeaderStrategy{redirectAfterHandling: false}, nil
+		return &HeaderStrategy{redirectAfterHandling: g.config.RedirectAfterHandling}, nil
 	case StrategyPath:
 		return &PathStrategy{redirectAfterHandling: g.config.RedirectAfterHandling}, nil
 	case StrategyQuery:

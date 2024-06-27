@@ -23,13 +23,30 @@ The plugin configuration is defined in the `Config` struct, which includes the f
   Possible values are `header`, `path`, and `query`.
 - **LanguageParam** (optional, default: `lang`): The parameter name to use when the `query` strategy is selected. This
   parameter will be used to set the language to the query string.
-- **RedirectAfterHandling** (optional, default: `true` for `path` and `query` strategies): A boolean flag that
+- **RedirectAfterHandling** (optional, default: `false`): A boolean flag that
   determines whether to perform a redirect after handling the language. If set to `true`, the plugin will redirect the
-  client to the same URL with the updated language.
+  client to the same URL with the updated language, actual for `path` and `query` strategies.
 - **LanguageToCountriesOverride** (optional): A map that allows overriding the default language detection based on
   specific countries. The keys are language codes, and the values are lists of country codes.
 
-### Strategies
+#### **Default Language Handling**
+
+The `DefaultLanguageHandling` parameter is a boolean flag that determines whether to handle requests with the default
+language. When set to `true`, the plugin will process requests even if the detected language is the default language
+specified in the configuration. This can be particularly useful when the default language of your website does not
+require language-specific URLs, as it allows you to avoid modifying the URL for the default language.
+
+For example, if your website's default language is English and your URLs are structured without a language prefix (
+e.g., `example.com/about`), setting `DefaultLanguageHandling` to `true` ensures that requests from users whose detected
+language is English will not be redirected to a language-specific URL (e.g., `example.com/en/about`). This maintains the
+clean URL structure for the default language, providing a consistent user experience for visitors who use the default
+language.
+
+Additionally, the plugin will not make any changes to the request if the user's request already contains a language that
+matches one of the supported languages. This ensures that the user's preference is respected and that the URL structure
+remains consistent with the user's choice.
+
+#### **Language Strategies**
 
 The plugin supports three strategies for handling the language from the request:
 
@@ -37,16 +54,16 @@ The plugin supports three strategies for handling the language from the request:
 - **path**: The language is handling from the URL path.
 - **query**: The language is handling from the query string parameter specified by languageParam.
 
-### Overriding Language Detection
+#### **Redirect After Handling**
+
+If RedirectAfterHandling is set to true, the plugin will perform a redirect to the same URL with the updated language
+after handling the request. This ensures that the client sees the updated language in the URL (actual for `path`
+and `query` strategies).
+
+#### **Overriding Language Detection**
 
 The LanguageToCountriesOverride map allows you to override the default language detection for specific countries. This
 can be useful if you want to enforce a particular language for users from certain countries.
-
-### Redirect After Handling
-
-If RedirectAfterHandling is set to true for `path` and `query` strategies, the plugin will perform a redirect to the
-same URL with the updated language
-after handling the request. This ensures that the client sees the updated language in the URL.
 
 ### Example Configuration
 
@@ -63,7 +80,8 @@ http:
 
 ## Installation
 
-To use the Traefik IP2Location Plugin, you need to install it as a **LOCAL PLUGIN** for Traefik. Here are the steps to do
+To use the Traefik IP2Location Plugin, you need to install it as a **LOCAL PLUGIN** for Traefik. Here are the steps to
+do
 this:
 
 1. **Clone the Plugin Repository**: Clone the repository of the Traefik IP2Location Plugin to your local path
@@ -120,7 +138,7 @@ this:
               defaultLanguage: "en"
               defaultLanguageHandling: false #optional (default: false)
               languageStrategy: "path"
-              redirectAfterHandling: true #optional (default: true)
+              redirectAfterHandling: true #optional (default: false)
               languageToCountriesOverride: #optional
                 fr: ["CA"]
     ```
@@ -138,7 +156,7 @@ this:
               defaultLanguageHandling: false #optional (default: false)
               languageStrategy: "query"
               languageParam: "lg" #optional (default: lang)
-              redirectAfterHandling: true #optional (default: true)
+              redirectAfterHandling: true #optional (default: false)
               languageToCountriesOverride: #optional
                 fr: ["CA"]
     ```
